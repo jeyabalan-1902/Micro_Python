@@ -166,6 +166,14 @@ def send_data(ws, entity_id, state):
     send_ws_message(ws, ujson.dumps(msg))
     message_id += 1
 
+def led_blink(blinks, delay, pause):
+    for _ in range(blinks):
+        led.value(1)
+        time.sleep(delay)
+        led.value(0)
+        time.sleep(delay)
+    time.sleep(pause)
+
 
 connect_wifi()
 ws = connect_ha_websocket()
