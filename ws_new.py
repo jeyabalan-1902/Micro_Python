@@ -13,8 +13,7 @@ PASSWORD = "nikhil8182"
 
 message_id = 1
 
-led = Pin(2, Pin.OUT) 
-
+led = Pin(21, Pin.OUT) 
 button_pin4 = Pin(4, Pin.IN, Pin.PULL_UP)
 button_pressed = False
 press_counter = 0
@@ -166,14 +165,6 @@ def send_data(ws, entity_id, state):
     send_ws_message(ws, ujson.dumps(msg))
     message_id += 1
 
-def led_blink(blinks, delay, pause):
-    for _ in range(blinks):
-        led.value(1)
-        time.sleep(delay)
-        led.value(0)
-        time.sleep(delay)
-    time.sleep(pause)
-
 
 connect_wifi()
 ws = connect_ha_websocket()
@@ -195,13 +186,7 @@ if ws:
             except Exception as e:
                 print("Error processing message:", e)
                 
-        send_data(ws, "switch.meta_4ch_touch_4", "ON")  # Turn on a light
-        send_data(ws, "switch.meta_4ch_touch_3", "ON")
-        send_data(ws, "switch.meta_4ch_touch_2", "ON")
-        send_data(ws, "switch.meta_4ch_touch", "ON")
-        time.sleep(5)
-        send_data(ws, "switch.meta_4ch_touch_4", "OFF")  # Turn off light
-        send_data(ws, "switch.meta_4ch_touch_3", "OFF")
-        send_data(ws, "switch.meta_4ch_touch_2", "OFF")
-        send_data(ws, "switch.meta_4ch_touch", "OFF")
-        time.sleep(5)
+#         send_data(ws, "switch.meta_4ch_touch_4", "ON")  # Turn on a light
+#         time.sleep(1)
+#         send_data(ws, "switch.meta_4ch_touch_4", "OFF")  # Turn off light
+#         time.sleep(1)

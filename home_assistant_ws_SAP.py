@@ -7,17 +7,35 @@ import time
 import ubinascii
 import urandom
 import machine
+from machine import Pin
+import uasyncio as asyncio
+import struct
 
 # Home Assistant WebSocket API
 HA_HOST = "homeassistant.local"
 HA_PORT = 8123
 HA_AUTH_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI2Mjc4YjllOTY2NTA0ZTk3YmVkOTAxY2UwN2YzYjc5YSIsImlhdCI6MTczODI5NDM5NCwiZXhwIjoyMDUzNjU0Mzk0fQ.Rik_K7Bk4hm2YJgORVmFNW1g49xipJEGoFAgT72_qCA"
-
 message_id = 1
 
-nvs = esp32.NVS("storage")
+nvs = esp32.NVS("storage")    #Product ID
 product_key = "product_id"
 
+R1 = Pin(26, Pin.OUT)         #Output relay Pins
+R2 = Pin(25, Pin.OUT)
+R3 = Pin(33, Pin.OUT)
+
+R1.value(0)                   #Output relay pins initial state
+R2.value(0)
+R3.value(0)
+
+S_Led = Pin(4, Pin.OUT)       #status Led
+S_Led.value(0)
+
+F1 = Pin(17, Pin.IN, Pin.PULL_DOWN)
+F2 = Pin(18, Pin.IN, Pin.PULL_DOWN)      #Feedback pins
+F3 = Pin(19, Pin.IN, Pin.PULL_DOWN)
+
+Rst = Pin(32, Pin.IN, Pin.PULL_UP)      #reset pin
 
 def get_product_id():
     try:
@@ -25,59 +43,10 @@ def get_product_id():
         length = nvs.get_blob(product_key, buf)  
         return buf[:length].decode() 
     except OSError:
-        return None 
+        return None
 
-# Function to save Product ID
-def set_product_id(product_id):
-    encoded_id = product_id.encode()  
-    nvs.set_blob(product_key, encoded_id)  
-    nvs.commit()  
-    print("Product ID saved in NVS.")
-
-# Function to delete Product ID
-def delete_product_id():
-    try:
-        nvs.erase_key(product_key)
-        nvs.commit()
-        print("Product ID deleted from NVS.")
-    except OSError:
-        print("No stored Product ID to delete.")
-
-def timed_input(prompt, timeout):
-    print(f"{prompt} (Waiting {timeout} seconds)... ", end="", flush=True)
-    rlist, _, _ = select.select([sys.stdin], [], [], timeout)  # Use positional args
-    if rlist:
-        return sys.stdin.readline().strip()
-    print("\nNo response. Continuing...")
-    return None  # Return None if timeout occurs
-
-# Check if Product ID exists
 product_id = get_product_id()
-
-if product_id:
-    print(f"Stored Product ID: {product_id}")
-    delete_option = input("Do you want to delete the stored Product ID? (yes/no): ").strip().lower()
-    
-    if delete_option == "yes":
-        delete_product_id()
-        product_id = None  # Reset product_id so new one is requested
-#     print(f"\nStored Product ID: {product_id}")
-#     delete_option = timed_input("Do you want to delete the stored Product ID? (yes/no)", timeout=5).strip().lower()
-#     
-#     if delete_option and delete_option.lower() == "yes":
-#         delete_product_id()
-#         product_id = None  # Reset product_id so new one is requested
-
-
-
-# If no Product ID is stored, ask for a new one
-if product_id is None:
-    product_id = input("Enter Product ID: ").strip()
-    if product_id:
-        set_product_id(product_id)
-
-# Continue with your main logic using the stored product_id
-print(f"Using Product ID: {product_id}")
+print(f"stored Product ID:{product_id}")
 
 # Step 2: Initialize WiFi and Configure AP Mode
 wifi = network.WLAN(network.STA_IF)
@@ -105,6 +74,7 @@ def get_stored_wifi_credentials():
 
     return None, None
 
+
 def connect_wifi(ssid, password):
     """Connects to the Wi-Fi network."""
     wifi.connect(ssid, password)
@@ -113,6 +83,9 @@ def connect_wifi(ssid, password):
         if wifi.isconnected():
             print("Connected to WiFi:", ssid)
             print("IP Address:", wifi.ifconfig()[0])
+            
+            ap.active(False)
+            print("SoftAP Mode Disabled.")
             return True
         time.sleep(2)  # Wait before checking again
     
@@ -248,7 +221,7 @@ def send_data(ws, entity_id, state):
         "service_data": {"entity_id": entity_id}
     }
     send_ws_message(ws, ujson.dumps(msg))
-    message_id += 1
+#     message_id += 1
     
 def handle_request(conn):
     """Handles incoming HTTP requests."""
@@ -292,6 +265,31 @@ def start_http_server():
         conn, addr = s.accept()
         print(f"Connection established with {addr}")
         handle_request(conn)
+        
+def handle_F1(pin):
+    R1.value(not R1.value())  # Toggle R1
+    if R1.value == 1:
+        send_data(ws, f"switch1.{product_id}", "ON")
+    else:
+        send_data(ws, f"switch1.{product_id}", "OFF")
+
+def handle_F2(pin):
+    R2.value(not R2.value())  # Toggle R2
+    if R2.value == 1:
+        send_data(ws, f"switch2.{product_id}", "ON")
+    else:
+        send_data(ws, f"switch2.{product_id}", "OFF")
+
+def handle_F3(pin):
+    R3.value(not R3.value())  # Toggle R3
+    if R3.value == 1:
+        send_data(ws, f"switch3.{product_id}", "ON")
+    else:
+        send_data(ws, f"switch3.{product_id}", "OFF")
+
+F1.irq(trigger=Pin.IRQ_RISING, handler=handle_F1)
+F2.irq(trigger=Pin.IRQ_RISING, handler=handle_F2)
+F3.irq(trigger=Pin.IRQ_RISING, handler=handle_F3) 
 
 # Main Execution
 stored_ssid, stored_password = get_stored_wifi_credentials()
@@ -321,16 +319,16 @@ if stored_ssid and stored_password:
                     except Exception as e:
                         print("Error processing message:", e)
                         
-                send_data(ws, "switch.meta_4ch_touch_4", "ON")  # Turn on a light
-                send_data(ws, "switch.meta_4ch_touch_3", "ON")
-                send_data(ws, "switch.meta_4ch_touch_2", "ON")
-                send_data(ws, "switch.meta_4ch_touch", "ON")
-                time.sleep(5)
-                send_data(ws, "switch.meta_4ch_touch_4", "OFF")  # Turn off light
-                send_data(ws, "switch.meta_4ch_touch_3", "OFF")
-                send_data(ws, "switch.meta_4ch_touch_2", "OFF")
-                send_data(ws, "switch.meta_4ch_touch", "OFF")
-                time.sleep(5)
+#                 send_data(ws, "switch.meta_4ch_touch_4", "ON")  # Turn on a light
+#                 send_data(ws, "switch.meta_4ch_touch_3", "ON")
+#                 send_data(ws, "switch.meta_4ch_touch_2", "ON")
+#                 send_data(ws, "switch.meta_4ch_touch", "ON")
+#                 time.sleep(5)
+#                 send_data(ws, "switch.meta_4ch_touch_4", "OFF")  # Turn off light
+#                 send_data(ws, "switch.meta_4ch_touch_3", "OFF")
+#                 send_data(ws, "switch.meta_4ch_touch_2", "OFF")
+#                 send_data(ws, "switch.meta_4ch_touch", "OFF")
+#                 time.sleep(5)
     else:
         print("Stored Wi-Fi credentials failed. Starting HTTP server for new credentials.")
         start_http_server()
